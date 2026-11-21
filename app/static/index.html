@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SignalChurn — Telco churn risk scorer</title>
+  <meta name="description" content="Score a telecom customer's churn risk with a scikit-learn model served by FastAPI." />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+  <body>
+  <header class="site-header">
+    <a class="brand" href="/">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <path d="M3 17l4.5-5 3.5 3L21 4" />
+          <path d="M15 4h6v6" />
+        </svg>
+      </span>
+      <span class="brand-name">SignalChurn</span>
+    </a>
+    <div class="model-chip" id="model-chip" hidden>
+      <span class="dot" aria-hidden="true"></span>
+      <span id="model-chip-name"></span>
+      <span class="chip-label">served by FastAPI</span>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="intro">
+      <p class="eyebrow">Telco churn scoring engine</p>
+      <h1>Will this customer churn?</h1>
+      <p class="lede">
+        Enter a customer profile to score cancellation risk. The pipeline handles missing
+        values, encodes categorical fields and returns a calibrated probability from the
+        best of three compared models.
+      </p>
+      <div class="meta-row" id="meta-row" hidden>
+        <div class="meta">
+          <span class="meta-label">ROC-AUC</span>
+          <strong id="meta-auc">—</strong>
+        </div>
+        <div class="meta">
+          <span class="meta-label">F1 score</span>
+          <strong id="meta-f1">—</strong>
+        </div>
+        <div class="meta">
+          <span class="meta-label">Decision threshold</span>
+          <strong id="meta-threshold">—</strong>
+        </div>
+        <div class="meta">
+          <span class="meta-label">Training rows</span>
+          <strong id="meta-rows">—</strong>
+        </div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <form class="card form-card" id="churn-form" novalidate>
+        <div class="card-head">
+          <div>
+            <h2>Customer profile</h2>
+            <p class="card-sub">All fields required. Defaults match a typical new subscriber.</p>
+          </div>
+          <div class="example-actions">
+            <button type="button" class="ghost-btn" id="fill-low">Low-risk example</button>
+            <button type="button" class="ghost-btn" id="fill-high">High-risk example</button>
+          </div>
+        </div>
+
+        <fieldset class="field-group">
+          <legend>Account &amp; tenure</legend>
+          <div class="field-grid">
+            <div class="field">
+              <label for="tenure">Tenure</label>
+              <div class="input-wrap">
+                <input type="number" id="tenure" name="tenure" min="0" max="100" step="1" value="8" required />
+                <span class="unit">months</span>
+              </div>
+            </div>
+            <div class="field">
+              <label for="Contract">Contract</label>
+              <select id="Contract" name="Contract" required>
+                <option>Month-to-month</option>
+                <option>One year</option>
+                <option>Two year</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="PaperlessBilling">Paperless billing</label>
+              <select id="PaperlessBilling" name="PaperlessBilling" required>
+                <option>Yes</option>
+                <option>No</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="PaymentMethod">Payment method</label>
+              <select id="PaymentMethod" name="PaymentMethod" required>
+                <option>Electronic check</option>
+                <option>Mailed check</option>
+                <option>Bank transfer (automatic)</option>
+                <option>Credit card (automatic)</option>
+              </select>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+          <legend>Customer details</legend>
+          <div class="field-grid">
+            <div class="field">
+              <label for="gender">Gender</label>
+              <select id="gender" name="gender" required>
+                <option>Female</option>
+                <option>Male</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="SeniorCitizen">Senior citizen</label>
+              <select id="SeniorCitizen" name="SeniorCitizen" required>
+                <option value="0">No</option>
+                <option value="1">Yes</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="Partner">Partner</label>
+              <select id="Partner" name="Partner" required>
+                <option>Yes</option>
+                <option>No</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="Dependents">Dependents</label>
+              <select id="Dependents" name="Dependents" required>
+                <option>No</option>
+                <option>Yes</option>
+              </select>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+          <legend>Services</legend>
+          <div class="field-grid">
+            <div class="field">
+              <label for="PhoneService">Phone service</label>
+              <select id="PhoneService" name="PhoneService" required>
+                <option>Yes</option>
+                <option>No</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="MultipleLines">Multiple lines</label>
+              <select id="MultipleLines" name="MultipleLines" required>
+                <option>No</option>
+                <option>Yes</option>
+                <option>No phone service</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="InternetService">Internet service</label>
+              <select id="InternetService" name="InternetService" required>
+                <option>Fiber optic</option>
+                <option>DSL</option>
+                <option>No</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="OnlineSecurity">Online security</label>
+              <select id="OnlineSecurity" name="OnlineSecurity" required>
+                <option>No</option>
+                <option>Yes</option>
+                <option>No internet service</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="OnlineBackup">Online backup</label>
+              <select id="OnlineBackup" name="OnlineBackup" required>
+                <option>No</option>
+                <option>Yes</option>
+                <option>No internet service</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="DeviceProtection">Device protection</label>
+              <select id="DeviceProtection" name="DeviceProtection" required>
+                <option>No</option>
+                <option>Yes</option>
+                <option>No internet service</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="TechSupport">Tech support</label>
+              <select id="TechSupport" name="TechSupport" required>
+                <option>No</option>
+                <option>Yes</option>
+                <option>No internet service</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="StreamingTV">Streaming TV</label>
+              <select id="StreamingTV" name="StreamingTV" required>
+                <option>Yes</option>
+                <option>No</option>
+                <option>No internet service</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="StreamingMovies">Streaming movies</label>
+              <select id="StreamingMovies" name="StreamingMovies" required>
+                <option>Yes</option>
+                <option>No</option>
+                <option>No internet service</option>
+              </select>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+          <legend>Charges</legend>
+          <div class="field-grid">
+            <div class="field">
+              <label for="MonthlyCharges">Monthly charges</label>
+              <div class="input-wrap">
+                <span class="prefix">$</span>
+                <input type="number" id="MonthlyCharges" name="MonthlyCharges" min="0" max="1000" step="0.01" value="84.55" required />
+              </div>
+            </div>
+            <div class="field">
+              <label for="TotalCharges">Total charges</label>
+              <div class="input-wrap">
+                <span class="prefix">$</span>
+                <input type="number" id="TotalCharges" name="TotalCharges" min="0" max="100000" step="0.01" value="676.40" required />
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <div class="form-footer">
+          <div class="error-box" id="form-error" role="alert" hidden></div>
+          <button type="submit" class="primary-btn" id="submit-btn">
+            <span class="btn-label">Score churn risk</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14M13 6l6 6-6 6" />
+            </svg>
+          </button>
+          <p class="privacy-note">Scored locally by the FastAPI service. No data leaves this demo.</p>
+        </div>
+      </form>
+
+      <aside class="result-col">
+        <section class="card result-card" id="result-card" data-risk="none" aria-live="polite">
+          <div class="result-empty" id="result-empty">
+            <div class="pulse-ring" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+                <path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z" />
+                <path d="M12 8v4l3 2" />
+              </svg>
+            </div>
+            <h2>Awaiting a profile</h2>
+            <p>Fill in the form and score a customer to see the predicted probability, risk band and decision.</p>
+          </div>
+
+          <div class="result-body" id="result-body" hidden>
+            <span class="badge" id="risk-badge">—</span>
+            <p class="prob-line">
+              <span class="prob-value" id="prob-value">—</span><span class="prob-unit">%</span>
+            </p>
+            <p class="prob-caption">predicted probability of churn</p>
+
+            <div class="meter" role="img" id="meter" aria-label="churn probability meter">
+              <div class="meter-track"><div class="meter-fill" id="meter-fill"></div></div>
+              <span class="meter-threshold" id="meter-threshold" title="decision threshold"></span>
+            </div>
+
+            <p class="verdict" id="verdict">—</p>
+            <p class="threshold-note" id="threshold-note"></p>
+
+            <button type="button" class="ghost-btn wide" id="copy-result">Copy result as JSON</button>
+          </div>
+          <div class="result-skeleton" id="result-skeleton" hidden>
+            <div class="skeleton w40"></div>
+            <div class="skeleton h56"></div>
+            <div class="skeleton w80"></div>
+            <div class="skeleton h12"></div>
+          </div>
+        </section>
+
+        <section class="card drivers-card">
+          <div class="card-head">
+            <div>
+              <h2>What moves the score</h2>
+              <p class="card-sub">Global feature importance from the winning model.</p>
+            </div>
+          </div>
+          <ul class="drivers" id="drivers">
+            <li class="drivers-loading">Loading drivers…</li>
+          </ul>
+          <p class="footnote">
+            Importance is model-wide, not per-customer. Use it to understand the
+            signals the model leaned on during training.
+          </p>
+        </section>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      Built with <a href="https://scikit-learn.org" target="_blank" rel="noreferrer">scikit-learn</a>,
+      <a href="https://fastapi.tiangolo.com" target="_blank" rel="noreferrer">FastAPI</a> and a
+      public <a href="https://github.com/IBM/telco-customer-churn-on-icp4d" target="_blank" rel="noreferrer">IBM Telco churn</a> dataset.
+    </p>
+    <p><a href="/docs">API docs</a> · <a href="/health">Health</a></p>
+  </footer>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
